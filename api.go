@@ -166,7 +166,7 @@ func getNumbersData() (NumbersAPIResp, error) {
 	}, nil
 }
 
-// API Route Handlers
+/* API Route Handlers
 func handleSMS(w http.ResponseWriter, r *http.Request) {
 	allSMS, err := getSMSData()
 	if err != nil {
@@ -176,6 +176,7 @@ func handleSMS(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(allSMS)
 }
+*/
 
 func handleNumbers(w http.ResponseWriter, r *http.Request) {
 	data, err := getNumbersData()
