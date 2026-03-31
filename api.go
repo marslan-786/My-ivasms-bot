@@ -181,6 +181,9 @@ func fetchRanges() ([]string, []byte, int, error) {
 	req, _ := http.NewRequest("POST", "https://www.ivasms.com/portal/sms/received/getsms", body)
 	setHeaders(req)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
+	// یہ دو ہیڈرز سرور کو بتائیں گے کہ ہم اصلی ویب سائٹ سے ہی آ رہے ہیں
+	req.Header.Set("Origin", "https://www.ivasms.com")
+	req.Header.Set("Referer", "https://www.ivasms.com/portal/sms/received")
 
 	resp, err := fastClient.Do(req)
 	if err != nil {
@@ -216,6 +219,9 @@ func fetchNumbers(rangeName string) []string {
 	req, _ := http.NewRequest("POST", "https://www.ivasms.com/portal/sms/received/getsms/number", strings.NewReader(data.Encode()))
 	setHeaders(req)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+	// سیکیورٹی بائی پاس کرنے کے لیے ہیڈرز
+	req.Header.Set("Origin", "https://www.ivasms.com")
+	req.Header.Set("Referer", "https://www.ivasms.com/portal/sms/received")
 
 	resp, err := fastClient.Do(req)
 	if err != nil {
@@ -248,6 +254,9 @@ func fetchSMS(rangeName, number string) [][]string {
 	req, _ := http.NewRequest("POST", "https://www.ivasms.com/portal/sms/received/getsms/number/sms", strings.NewReader(data.Encode()))
 	setHeaders(req)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+	// سیکیورٹی بائی پاس کرنے کے لیے ہیڈرز
+	req.Header.Set("Origin", "https://www.ivasms.com")
+	req.Header.Set("Referer", "https://www.ivasms.com/portal/sms/received")
 
 	resp, err := fastClient.Do(req)
 	if err != nil {
