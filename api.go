@@ -32,31 +32,51 @@ type NumbersAPIResp struct {
 	Numbers []CleanNumber `json:"numbers"`
 }
 
-// یہ فنکشن ڈائریکٹ SMS لسٹ ریٹرن کرتا ہے (بغیر HTTP کے)
+// ملی سیکنڈز میں ٹاسک رن کرنے کے لیے کسٹم فاسٹ ایچ ٹی ٹی پی کلائنٹ
+var fastClient = &http.Client{
+	Timeout: 15 * time.Second,
+	Transport: &http.Transport{
+		MaxIdleConns:        200,
+		MaxIdleConnsPerHost: 200,
+		IdleConnTimeout:     90 * time.Second,
+	},
+}
+
+// یہ فنکشن ڈائریکٹ SMS لسٹ ریٹرن کرتا ہے
 func getSMSData() ([][]string, error) {
-	ranges, _, statusCode, err := fetchRanges()
+	ranges, rawBody, statusCode, err := fetchRanges()
 	if err != nil {
 		return nil, err
 	}
-	if statusCode != 200 || len(ranges) == 0 {
+	
+	// اگر 200 سٹیٹس نہیں ہے تو مطلب کوئی نیٹ ورک یا سرور ایشو ہے
+	if statusCode != 200 {
 		return nil, fmt.Errorf("failed to fetch ranges, status: %d", statusCode)
+	}
+
+	// یس! یہ وہ بگ تھا جو فکس کیا ہے۔ اگر رینج زیرو ہو تو ایرر نہیں دینا، ایمپٹی ڈیٹا بھیجنا ہے
+	if len(ranges) == 0 {
+		return [][]string{}, nil
 	}
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	allSMS := make([][]string, 0)
 
+	// پہلا مرحلہ: ہر رینج کے لیے بیک گراؤنڈ ٹاسک
 	for _, rng := range ranges {
 		wg.Add(1)
 		go func(rName string) {
 			defer wg.Done()
 			numbers := fetchNumbers(rName)
 
+			// دوسرا مرحلہ: ہر نمبر کے لیے ملی سیکنڈ میں بیک گراؤنڈ ٹاسک
 			var numWg sync.WaitGroup
 			for _, num := range numbers {
 				numWg.Add(1)
 				go func(nName string) {
 					defer numWg.Done()
+					// تیسرا مرحلہ: میسجز نکالنا
 					messages := fetchSMS(rName, nName)
 
 					mu.Lock()
@@ -64,12 +84,13 @@ func getSMSData() ([][]string, error) {
 					mu.Unlock()
 				}(num)
 			}
-			numWg.Wait()
+			numWg.Wait() // اس رینج کے تمام نمبرز کا انتظار کریں
 		}(rng)
 	}
 
-	wg.Wait()
+	wg.Wait() // تمام رینجز کا انتظار کریں (یہ سب کچھ ملی سیکنڈز میں ہوگا)
 
+	// ٹائم کے حساب سے ترتیب دینا
 	sort.Slice(allSMS, func(i, j int) bool {
 		return allSMS[i][3] > allSMS[j][3]
 	})
@@ -85,8 +106,7 @@ func getNumbersData() (NumbersAPIResp, error) {
 	setHeaders(req)
 	req.Header.Set("Accept", "application/json, text/javascript, */*; q=0.01")
 
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := fastClient.Do(req)
 	if err != nil {
 		return NumbersAPIResp{}, err
 	}
@@ -153,8 +173,7 @@ func fetchRanges() ([]string, []byte, int, error) {
 	setHeaders(req)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := fastClient.Do(req)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -189,8 +208,7 @@ func fetchNumbers(rangeName string) []string {
 	setHeaders(req)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := fastClient.Do(req)
 	if err != nil {
 		return nil
 	}
@@ -222,8 +240,7 @@ func fetchSMS(rangeName, number string) [][]string {
 	setHeaders(req)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := fastClient.Do(req)
 	if err != nil {
 		return nil
 	}
