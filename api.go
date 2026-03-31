@@ -31,6 +31,16 @@ type NumbersAPIResp struct {
 	Status  string        `json:"status"`
 	Numbers []CleanNumber `json:"numbers"`
 }
+// یہ کسٹم ایرر سٹرکچر ہے جو اوریجنل باڈی کو ہولڈ کرے گا
+type APIError struct {
+	StatusCode int
+	RawBody    []byte
+	Message    string
+}
+
+func (e *APIError) Error() string {
+	return e.Message
+}
 
 // ملی سیکنڈز میں ٹاسک رن کرنے کے لیے کسٹم فاسٹ ایچ ٹی ٹی پی کلائنٹ
 var fastClient = &http.Client{
@@ -50,21 +60,13 @@ func getSMSData() ([][]string, error) {
 		return nil, err
 	}
 	
-	// اگر 200 سٹیٹس نہیں ہے تو کنسول پر پورا رسپانس پرنٹ کرو
-	if statusCode != 200 {
-		fmt.Println("=====================================")
-		fmt.Println("❌ ERROR FETCHING RANGES")
-		fmt.Printf("Status Code: %d\n", statusCode)
-		fmt.Println("Response Body:")
-		fmt.Println(string(rawBody)) // یہ سرور کا مکمل جواب پرنٹ کر دے گا
-		fmt.Println("=====================================")
-		
-		return nil, fmt.Errorf("failed to fetch ranges, status: %d", statusCode)
-	}
-
-	// اگر رینج زیرو ہو تو ایمپٹی ڈیٹا بھیجنا ہے
-	if len(ranges) == 0 {
-		return [][]string{}, nil
+	// اگر سٹیٹس 200 نہیں ہے یا رینجز نہیں ملیں تو کسٹم ایرر بھیجیں جس میں پورا رسپانس ہو
+	if statusCode != 200 || len(ranges) == 0 {
+		return nil, &APIError{
+			StatusCode: statusCode,
+			RawBody:    rawBody,
+			Message:    fmt.Sprintf("Failed to fetch. Status: %d", statusCode),
+		}
 	}
 
 	var wg sync.WaitGroup
@@ -104,6 +106,25 @@ func getSMSData() ([][]string, error) {
 	})
 
 	return allSMS, nil
+}
+
+func handleSMS(w http.ResponseWriter, r *http.Request) {
+	allSMS, err := getSMSData()
+	
+	if err != nil {
+		// چیک کریں کہ کیا یہ ہمارا کسٹم APIError ہے جس میں rawBody ہے
+		if apiErr, ok := err.(*APIError); ok {
+			w.WriteHeader(apiErr.StatusCode)
+			w.Write(apiErr.RawBody) // یہ پورا اوریجنل HTML/رسپانس براؤزر یا پوسٹ مین میں شو کروا دے گا
+			return
+		}
+		// نارمل ایرر
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(allSMS)
 }
 
 
@@ -181,11 +202,9 @@ func fetchRanges() ([]string, []byte, int, error) {
 	req, _ := http.NewRequest("POST", "https://www.ivasms.com/portal/sms/received/getsms", body)
 	setHeaders(req)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-	// یہ دو ہیڈرز سرور کو بتائیں گے کہ ہم اصلی ویب سائٹ سے ہی آ رہے ہیں
-	req.Header.Set("Origin", "https://www.ivasms.com")
-	req.Header.Set("Referer", "https://www.ivasms.com/portal/sms/received")
 
-	resp, err := fastClient.Do(req)
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -219,18 +238,16 @@ func fetchNumbers(rangeName string) []string {
 	req, _ := http.NewRequest("POST", "https://www.ivasms.com/portal/sms/received/getsms/number", strings.NewReader(data.Encode()))
 	setHeaders(req)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-	// سیکیورٹی بائی پاس کرنے کے لیے ہیڈرز
-	req.Header.Set("Origin", "https://www.ivasms.com")
-	req.Header.Set("Referer", "https://www.ivasms.com/portal/sms/received")
 
-	resp, err := fastClient.Do(req)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil
 	}
 	defer resp.Body.Close()
 
 	bodyBytes, _ := io.ReadAll(resp.Body)
-
+	
 	re := regexp.MustCompile(`toggleNum[a-zA-Z0-9_]+\('([^']+)'`)
 	matches := re.FindAllStringSubmatch(string(bodyBytes), -1)
 
@@ -254,21 +271,19 @@ func fetchSMS(rangeName, number string) [][]string {
 	req, _ := http.NewRequest("POST", "https://www.ivasms.com/portal/sms/received/getsms/number/sms", strings.NewReader(data.Encode()))
 	setHeaders(req)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-	// سیکیورٹی بائی پاس کرنے کے لیے ہیڈرز
-	req.Header.Set("Origin", "https://www.ivasms.com")
-	req.Header.Set("Referer", "https://www.ivasms.com/portal/sms/received")
 
-	resp, err := fastClient.Do(req)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil
 	}
 	defer resp.Body.Close()
 
 	bodyBytes, _ := io.ReadAll(resp.Body)
-
+	
 	re := regexp.MustCompile(`(?s)<tr>\s*<td>(.*?)</td>\s*<td><div class="msg-text">(.*?)</div></td>\s*<td class="time-cell">(.*?)</td>`)
 	matches := re.FindAllStringSubmatch(string(bodyBytes), -1)
-
+	
 	htmlTagRe := regexp.MustCompile(`<[^>]*>`)
 
 	var messages [][]string
