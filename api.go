@@ -43,18 +43,26 @@ var fastClient = &http.Client{
 }
 
 // یہ فنکشن ڈائریکٹ SMS لسٹ ریٹرن کرتا ہے
+// یہ فنکشن ڈائریکٹ SMS لسٹ ریٹرن کرتا ہے
 func getSMSData() ([][]string, error) {
-	ranges, _, statusCode, err := fetchRanges()
+	ranges, rawBody, statusCode, err := fetchRanges()
 	if err != nil {
 		return nil, err
 	}
 	
-	// اگر 200 سٹیٹس نہیں ہے تو مطلب کوئی نیٹ ورک یا سرور ایشو ہے
+	// اگر 200 سٹیٹس نہیں ہے تو کنسول پر پورا رسپانس پرنٹ کرو
 	if statusCode != 200 {
+		fmt.Println("=====================================")
+		fmt.Println("❌ ERROR FETCHING RANGES")
+		fmt.Printf("Status Code: %d\n", statusCode)
+		fmt.Println("Response Body:")
+		fmt.Println(string(rawBody)) // یہ سرور کا مکمل جواب پرنٹ کر دے گا
+		fmt.Println("=====================================")
+		
 		return nil, fmt.Errorf("failed to fetch ranges, status: %d", statusCode)
 	}
 
-	// یس! یہ وہ بگ تھا جو فکس کیا ہے۔ اگر رینج زیرو ہو تو ایرر نہیں دینا، ایمپٹی ڈیٹا بھیجنا ہے
+	// اگر رینج زیرو ہو تو ایمپٹی ڈیٹا بھیجنا ہے
 	if len(ranges) == 0 {
 		return [][]string{}, nil
 	}
@@ -84,11 +92,11 @@ func getSMSData() ([][]string, error) {
 					mu.Unlock()
 				}(num)
 			}
-			numWg.Wait() // اس رینج کے تمام نمبرز کا انتظار کریں
+			numWg.Wait()
 		}(rng)
 	}
 
-	wg.Wait() // تمام رینجز کا انتظار کریں (یہ سب کچھ ملی سیکنڈز میں ہوگا)
+	wg.Wait()
 
 	// ٹائم کے حساب سے ترتیب دینا
 	sort.Slice(allSMS, func(i, j int) bool {
@@ -97,6 +105,7 @@ func getSMSData() ([][]string, error) {
 
 	return allSMS, nil
 }
+
 
 func getNumbersData() (NumbersAPIResp, error) {
 	currentTimestamp := time.Now().UnixMilli()
