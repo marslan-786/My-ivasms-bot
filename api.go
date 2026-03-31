@@ -44,7 +44,7 @@ var fastClient = &http.Client{
 
 // یہ فنکشن ڈائریکٹ SMS لسٹ ریٹرن کرتا ہے
 func getSMSData() ([][]string, error) {
-	ranges, statusCode, err := fetchRanges()
+	ranges, _, statusCode, err := fetchRanges()
 	if err != nil {
 		return nil, err
 	}
